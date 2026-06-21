@@ -625,6 +625,36 @@ button {
 .btn-handsfree-six.activated { color: #fff; background: #B23A16; border-color: #B23A16; }
 .btn-handsfree-six:active { opacity: 0.85; }
 
+/* Auto-read toggle (session-only). Off: grey outline. On: filled accent. */
+.btn-autoread {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-family: var(--font-heading);
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  border: 2px solid rgba(44, 36, 32, 0.18);
+  border-radius: var(--radius-pill);
+  padding: 0.5rem 0.9rem;
+  background: var(--bg-card);
+  min-height: 44px;
+  white-space: nowrap;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease, opacity 0.15s ease;
+}
+
+.btn-autoread svg { width: 18px; height: 18px; opacity: 0.55; }
+
+.btn-autoread.activated {
+  color: #fff;
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+.btn-autoread.activated svg { opacity: 1; }
+
+.btn-autoread:active { opacity: 0.85; }
+
 /* ============================================================
    PROGRESS OVERLAY
    ============================================================ */

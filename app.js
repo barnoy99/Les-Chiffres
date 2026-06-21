@@ -13,6 +13,10 @@
   var currentNumber = null;
   var lastNumberId = null;
   var numberSeenThisSession = 0;
+  var numberHistory = [];            // back-navigation stack (ids)
+
+  // Session-only auto-read: muted by default, reset every page load.
+  var autoReadSession = false;
 
   // ── Acquis (phrases) state ──────────────────────────────
   var acquisPhrases = [];
@@ -168,12 +172,33 @@
     ordinal: 'Ordinal', percent: 'Pourcentage'
   };
 
+  function findNumberById(id) {
+    for (var i = 0; i < NUMBERS.length; i++) {
+      if (NUMBERS[i].id === id) return NUMBERS[i];
+    }
+    return null;
+  }
+
   function advanceNumber() {
+    if (currentNumber) {
+      numberHistory.push(currentNumber.id);
+      if (numberHistory.length > 50) numberHistory.shift();
+    }
     var next = selectNextNumber();
     currentNumber = next;
     lastNumberId = next.id;
     showScreen('screen-number');
     renderNumber(next);
+  }
+
+  function numberPrev() {
+    if (numberHistory.length === 0) return;
+    var id = numberHistory.pop();
+    var item = findNumberById(id);
+    if (!item) return;
+    currentNumber = item;
+    lastNumberId = id;
+    renderNumber(item);
   }
 
   function renderNumber(item) {
@@ -185,6 +210,7 @@
     hide($('number-reveal'));
     hide($('btn-number-suivant'));
     show($('number-rating'));
+    updateAutoReadButtons();
     var btns = $('number-rating').querySelectorAll('.rating-btn');
     for (var i = 0; i < btns.length; i++) {
       btns[i].disabled = false;
@@ -214,6 +240,7 @@
       hide($('number-rating'));
       show($('number-reveal'));
       show($('btn-number-suivant'));
+      if (autoReadSession) speakFrench(currentNumber.answer);
     }, 300);
   }
 
@@ -278,6 +305,23 @@
     speechSynthesis.speak(u);
   }
 
+  // ── Auto-read toggle (session-only, shared by both modes) ──
+
+  function updateAutoReadButtons() {
+    ['btn-number-autoread', 'btn-acquis-autoread'].forEach(function (id) {
+      var btn = $(id);
+      if (!btn) return;
+      btn.classList.toggle('activated', autoReadSession);
+      var label = btn.querySelector('.btn-autoread-label');
+      if (label) label.textContent = autoReadSession ? 'Auto ✓' : 'Auto';
+    });
+  }
+
+  function toggleAutoRead() {
+    autoReadSession = !autoReadSession;
+    updateAutoReadButtons();
+  }
+
   // ── Acquis mode (Option 2) ──────────────────────────────
 
   function updateHomeScreen() {
@@ -306,6 +350,7 @@
     $('acquis-french').textContent = r.fr;
     $('acquis-counter').textContent = (acquisIndex + 1) + ' / ' + acquisPhrases.length;
     updateAcquisSixButton();
+    updateAutoReadButtons();
     show($('acquis-reveal-area'));
     hide($('acquis-revealed'));
     hide($('btn-suivant'));
@@ -326,6 +371,7 @@
     hide($('acquis-reveal-area'));
     show($('acquis-revealed'));
     show($('btn-suivant'));
+    if (autoReadSession && p) speakFrench(resolveSentence(p, acquisRendered).fr);
   }
 
   // ── Hands-free mode (Option 3) — adapted from reference ──
@@ -668,6 +714,8 @@
     // Home → modes
     $('btn-number').addEventListener('click', function () {
       numberSeenThisSession = 0;
+      numberHistory = [];
+      currentNumber = null;
       advanceNumber();
     });
     $('btn-acquis').addEventListener('click', startAcquis);
@@ -678,8 +726,10 @@
       updateHomeScreen();
       showScreen('screen-home');
     });
+    $('btn-number-prev').addEventListener('click', numberPrev);
     $('btn-number-next').addEventListener('click', advanceNumber);
     $('btn-number-suivant').addEventListener('click', advanceNumber);
+    $('btn-number-autoread').addEventListener('click', toggleAutoRead);
     $('btn-number-tts').addEventListener('click', function () {
       if (currentNumber) speakFrench(currentNumber.answer);
     });
@@ -718,6 +768,7 @@
       toggleBoost(p.id);
       updateAcquisSixButton();
     });
+    $('btn-acquis-autoread').addEventListener('click', toggleAutoRead);
     $('btn-acquis-done-home').addEventListener('click', function () {
       releaseWakeLock();
       updateHomeScreen();

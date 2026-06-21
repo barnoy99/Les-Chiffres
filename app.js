@@ -214,7 +214,6 @@
       hide($('number-rating'));
       show($('number-reveal'));
       show($('btn-number-suivant'));
-      speakFrench(currentNumber.answer);
     }, 300);
   }
 

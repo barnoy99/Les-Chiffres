@@ -727,36 +727,51 @@
     btn.textContent = boosted ? '×6 ✓' : '×6';
   }
 
-  // One round = beep + speak FR → 5s think → reveal (number + English) + beep +
-  // speak EN. Repeats until ecouteReadTarget rounds (checked live so ×6 works
-  // mid-item). The reveal is idempotent — only the first round actually unhides.
-  function doRound(item, roundNum, onDone) {
+  // Think-pause length (seconds) before the next French re-read.
+  // Round 2 → 5s, round 3 and beyond → 4s.
+  function ecouteThinkSecs(roundNum) {
+    return roundNum === 2 ? 5 : 4;
+  }
+
+  // One French reading. Round 1 is the listening test: number hidden → speak FR
+  // → 5s think → reveal number + English → read English → 1s → next round.
+  // Rounds 2+ just re-read the French (number now visible) → think pause → next.
+  // ecouteReadTarget = total French reads (default 3, ×6 → 6), checked live.
+  function doFrenchRead(item, roundNum, onDone) {
     if (!ecouteActive) return;
     ecouteSpeaking('Écoutez en français…');
     playDing('fr', function () {
       if (!ecouteActive) return;
       speakFrenchCb(item.answer, function () {
         if (!ecouteActive) return;
-        ecouteStartCountdown(5, 'Traduisez…', function () {
-          if (!ecouteActive) return;
-          show($('dictee-number-area'));
-          show($('dictee-english-area'));
-          playDing('en', function () {
+        ecouteLastReadNum = roundNum;
+
+        if (roundNum === 1) {
+          // First read: think, then reveal + read English, then 1s, then re-read.
+          ecouteStartCountdown(5, 'Traduisez…', function () {
             if (!ecouteActive) return;
-            ecouteSpeaking('En anglais…');
-            speakEnglish(item.en, function () {
+            show($('dictee-number-area'));
+            show($('dictee-english-area'));
+            playDing('en', function () {
               if (!ecouteActive) return;
-              ecouteLastReadNum = roundNum;
-              if (roundNum >= ecouteReadTarget) {
-                onDone();
-              } else {
-                ecouteStartCountdown(2, 'Encore…', function () {
-                  doRound(item, roundNum + 1, onDone);
+              ecouteSpeaking('En anglais…');
+              speakEnglish(item.en, function () {
+                if (!ecouteActive) return;
+                if (roundNum >= ecouteReadTarget) { onDone(); return; }
+                ecouteStartCountdown(1, 'Encore…', function () {
+                  doFrenchRead(item, roundNum + 1, onDone);
                 });
-              }
+              });
             });
           });
-        });
+        } else {
+          // Re-reads: just a think pause (no English), then next read or item.
+          ecouteStartCountdown(ecouteThinkSecs(roundNum), 'Répétez…', function () {
+            if (!ecouteActive) return;
+            if (roundNum >= ecouteReadTarget) onDone();
+            else doFrenchRead(item, roundNum + 1, onDone);
+          });
+        }
       });
     });
   }
@@ -777,7 +792,7 @@
     ecouteCurrentItem = item;
     $('dictee-counter').textContent = (ecouteIndex + 1) + ' / ' + ecouteItems.length;
 
-    ecouteReadTarget = isDicteeBoosted(item.id) ? 6 : 2;  // rounds (FR→think→EN)
+    ecouteReadTarget = isDicteeBoosted(item.id) ? 6 : 3;  // total French reads
     ecouteFinalPause = false;
     ecouteLastReadNum = 0;
     updateDicteeSix();
@@ -788,18 +803,15 @@
     hide($('dictee-number-area'));
     hide($('dictee-english-area'));
 
+    // The last re-read's think pause already spaces items, so advance directly.
     var advanceFn = function () {
       if (!ecouteActive) return;
-      ecouteFinalPause = true;
-      ecouteStartCountdown(2, 'Suivant…', function () {
-        ecouteFinalPause = false;
-        ecouteIndex++;
-        ecouteStep();
-      });
+      ecouteIndex++;
+      ecouteStep();
     };
     ecouteReadsDoneCallback = advanceFn;
 
-    doRound(item, 1, advanceFn);
+    doFrenchRead(item, 1, advanceFn);
   }
 
   function startEcoute() {
@@ -1071,16 +1083,12 @@
       var it = ecouteItems[ecouteIndex];
       if (!it) return;
       var nowBoosted = toggleDicteeBoost(it.id);
+      // Target = total French reads. The round-boundary check picks this up live,
+      // so toggling mid-item extends (6) or stops after the current read (≥3).
       if (nowBoosted) {
-        ecouteReadTarget = Math.max(6, ecouteLastReadNum + 2);
-        // If pressed during the final pause, run more rounds now.
-        if (ecouteFinalPause && ecouteCurrentItem && ecouteReadsDoneCallback) {
-          ecouteFinalPause = false;
-          if (ecouteCountdownId) { clearInterval(ecouteCountdownId); ecouteCountdownId = null; }
-          doRound(ecouteCurrentItem, ecouteLastReadNum + 1, ecouteReadsDoneCallback);
-        }
+        ecouteReadTarget = 6;
       } else {
-        ecouteReadTarget = ecouteLastReadNum < 2 ? 2 : ecouteLastReadNum + 1;
+        ecouteReadTarget = Math.max(3, ecouteLastReadNum);
       }
       updateDicteeSix();
     });

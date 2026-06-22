@@ -289,6 +289,15 @@ button {
   letter-spacing: 0.01em;
 }
 
+.dictee-french {
+  font-family: var(--font-heading);
+  font-style: italic;
+  font-size: 1.6rem;
+  line-height: 1.25;
+  color: var(--color-accent);
+  margin-top: 0.6rem;
+}
+
 .number-answer-card {
   background: var(--bg-card);
   border: var(--border-subtle);

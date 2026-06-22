@@ -758,7 +758,7 @@
               speakEnglish(item.en, function () {
                 if (!ecouteActive) return;
                 if (roundNum >= ecouteReadTarget) { onDone(); return; }
-                ecouteStartCountdown(1, 'Encore…', function () {
+                ecouteStartCountdown(4, 'Encore…', function () {
                   doFrenchRead(item, roundNum + 1, onDone);
                 });
               });
@@ -799,6 +799,7 @@
 
     // Pre-fill but keep hidden until after the first French read + think.
     $('dictee-display').textContent = item.display;
+    $('dictee-french').textContent = item.answer;
     $('dictee-english').textContent = item.en;
     hide($('dictee-number-area'));
     hide($('dictee-english-area'));

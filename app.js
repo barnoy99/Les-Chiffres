@@ -727,22 +727,36 @@
     btn.textContent = boosted ? '×6 ✓' : '×6';
   }
 
-  // Recursive English readings — checks ecouteReadTarget live so ×6 works mid-item.
-  function doEnglishReads(item, readNum, onDone) {
+  // One round = beep + speak FR → 5s think → reveal (number + English) + beep +
+  // speak EN. Repeats until ecouteReadTarget rounds (checked live so ×6 works
+  // mid-item). The reveal is idempotent — only the first round actually unhides.
+  function doRound(item, roundNum, onDone) {
     if (!ecouteActive) return;
-    playDing('en', function () {
+    ecouteSpeaking('Écoutez en français…');
+    playDing('fr', function () {
       if (!ecouteActive) return;
-      ecouteSpeaking('En anglais…');
-      speakEnglish(item.en, function () {
+      speakFrenchCb(item.answer, function () {
         if (!ecouteActive) return;
-        ecouteLastReadNum = readNum;
-        if (readNum >= ecouteReadTarget) {
-          onDone();
-        } else {
-          ecouteStartCountdown(5, 'Encore…', function () {
-            doEnglishReads(item, readNum + 1, onDone);
+        ecouteStartCountdown(5, 'Traduisez…', function () {
+          if (!ecouteActive) return;
+          show($('dictee-number-area'));
+          show($('dictee-english-area'));
+          playDing('en', function () {
+            if (!ecouteActive) return;
+            ecouteSpeaking('En anglais…');
+            speakEnglish(item.en, function () {
+              if (!ecouteActive) return;
+              ecouteLastReadNum = roundNum;
+              if (roundNum >= ecouteReadTarget) {
+                onDone();
+              } else {
+                ecouteStartCountdown(2, 'Encore…', function () {
+                  doRound(item, roundNum + 1, onDone);
+                });
+              }
+            });
           });
-        }
+        });
       });
     });
   }
@@ -763,12 +777,12 @@
     ecouteCurrentItem = item;
     $('dictee-counter').textContent = (ecouteIndex + 1) + ' / ' + ecouteItems.length;
 
-    ecouteReadTarget = isDicteeBoosted(item.id) ? 6 : 3;
+    ecouteReadTarget = isDicteeBoosted(item.id) ? 6 : 2;  // rounds (FR→think→EN)
     ecouteFinalPause = false;
     ecouteLastReadNum = 0;
     updateDicteeSix();
 
-    // Pre-fill but keep hidden until the English reading (true listening test).
+    // Pre-fill but keep hidden until after the first French read + think.
     $('dictee-display').textContent = item.display;
     $('dictee-english').textContent = item.en;
     hide($('dictee-number-area'));
@@ -777,7 +791,7 @@
     var advanceFn = function () {
       if (!ecouteActive) return;
       ecouteFinalPause = true;
-      ecouteStartCountdown(5, 'Suivant…', function () {
+      ecouteStartCountdown(2, 'Suivant…', function () {
         ecouteFinalPause = false;
         ecouteIndex++;
         ecouteStep();
@@ -785,22 +799,7 @@
     };
     ecouteReadsDoneCallback = advanceFn;
 
-    var reveal = function () {
-      if (!ecouteActive) return;
-      show($('dictee-number-area'));
-      show($('dictee-english-area'));
-      doEnglishReads(item, 1, advanceFn);
-    };
-
-    // Phase 1: beep + speak French, then a 5s think countdown, then reveal+EN.
-    ecouteSpeaking('Écoutez en français…');
-    playDing('fr', function () {
-      if (!ecouteActive) return;
-      speakFrenchCb(item.answer, function () {
-        if (!ecouteActive) return;
-        ecouteStartCountdown(5, 'Traduisez…', reveal);
-      });
-    });
+    doRound(item, 1, advanceFn);
   }
 
   function startEcoute() {
@@ -1073,15 +1072,15 @@
       if (!it) return;
       var nowBoosted = toggleDicteeBoost(it.id);
       if (nowBoosted) {
-        ecouteReadTarget = Math.max(6, ecouteLastReadNum + 3);
-        // If pressed during the final pause, read more English now.
+        ecouteReadTarget = Math.max(6, ecouteLastReadNum + 2);
+        // If pressed during the final pause, run more rounds now.
         if (ecouteFinalPause && ecouteCurrentItem && ecouteReadsDoneCallback) {
           ecouteFinalPause = false;
           if (ecouteCountdownId) { clearInterval(ecouteCountdownId); ecouteCountdownId = null; }
-          doEnglishReads(ecouteCurrentItem, ecouteLastReadNum + 1, ecouteReadsDoneCallback);
+          doRound(ecouteCurrentItem, ecouteLastReadNum + 1, ecouteReadsDoneCallback);
         }
       } else {
-        ecouteReadTarget = ecouteLastReadNum < 3 ? 3 : ecouteLastReadNum + 1;
+        ecouteReadTarget = ecouteLastReadNum < 2 ? 2 : ecouteLastReadNum + 1;
       }
       updateDicteeSix();
     });

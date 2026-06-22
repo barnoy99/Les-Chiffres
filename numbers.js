@@ -248,12 +248,76 @@
     return n + (s[(v - 20) % 10] || s[v] || s[0]);
   }
 
+  // ── Dictée content (listening drill, FR → EN) ──────────────
+  // Self-contained, curated list: difficult integers, important years, a few
+  // ordinals/percentages, and hand-written fractions & decimals. Stable ids.
+  // Prices are intentionally excluded (en-US TTS reads "€34.60" unreliably).
+  function buildDicteeItems() {
+    var items = [];
+    var id = 1;
+
+    function addInt(value) {
+      items.push({ id: id++, type: 'int', display: formatNumber(value),
+        answer: numberToFrench(value), en: String(value) });
+    }
+    function addYear(y) {
+      items.push({ id: id++, type: 'year', display: String(y),
+        answer: numberToFrench(y), en: 'the year ' + y });
+    }
+    function addOrdinal(n) {
+      items.push({ id: id++, type: 'ordinal', display: n + (n === 1 ? 'er' : 'e'),
+        answer: ordinalToFrench(n), en: ordinalSuffixEn(n) });
+    }
+    function addPercent(p) {
+      items.push({ id: id++, type: 'percent', display: p + ' %',
+        answer: numberToFrench(p) + ' pour cent', en: p + '%' });
+    }
+    function addRaw(type, display, answer, en) {
+      items.push({ id: id++, type: type, display: display, answer: answer, en: en });
+    }
+
+    // — Difficult integers (the 70–99 family + a few teens/round) —
+    [71, 72, 74, 76, 77, 78, 81, 83, 88, 91, 92, 95, 96, 98, 99,
+      17, 80, 90, 70, 60]
+      .forEach(addInt);
+
+    // — Important years —
+    [1789, 1871, 1914, 1918, 1939, 1945, 1968, 1976, 1981, 1989,
+      1998, 2001, 2008, 2019, 2020, 2024]
+      .forEach(addYear);
+
+    // — A few ordinals & percentages —
+    [1, 2, 5, 7, 9, 21].forEach(addOrdinal);
+    [25, 50, 75, 90, 99].forEach(addPercent);
+
+    // — Fractions (hand-written FR/EN) —
+    addRaw('fraction', '1/2', 'un demi', 'one half');
+    addRaw('fraction', '1/3', 'un tiers', 'one third');
+    addRaw('fraction', '2/3', 'deux tiers', 'two thirds');
+    addRaw('fraction', '1/4', 'un quart', 'one quarter');
+    addRaw('fraction', '3/4', 'trois quarts', 'three quarters');
+    addRaw('fraction', '1/5', 'un cinquième', 'one fifth');
+    addRaw('fraction', '2/5', 'deux cinquièmes', 'two fifths');
+
+    // — Decimals (hand-written FR/EN) —
+    addRaw('decimal', '0,5', 'zéro virgule cinq', 'zero point five');
+    addRaw('decimal', '1,5', 'un virgule cinq', 'one point five');
+    addRaw('decimal', '2,5', 'deux virgule cinq', 'two point five');
+    addRaw('decimal', '3,5', 'trois virgule cinq', 'three point five');
+    addRaw('decimal', '2,25', 'deux virgule vingt-cinq', 'two point two five');
+    addRaw('decimal', '7,8', 'sept virgule huit', 'seven point eight');
+    addRaw('decimal', '10,5', 'dix virgule cinq', 'ten point five');
+
+    return items;
+  }
+
   // ── Export ─────────────────────────────────────────────────
   var api = {
     numberToFrench: numberToFrench,
     priceToFrench: priceToFrench,
     ordinalToFrench: ordinalToFrench,
     buildNumberPool: buildNumberPool,
+    buildDicteeItems: buildDicteeItems,
     fillTemplate: fillTemplate,
     randomOfType: randomOfType,
     formatNumber: formatNumber,

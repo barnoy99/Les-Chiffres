@@ -76,7 +76,10 @@
   // ── Persistence ─────────────────────────────────────────
 
   function defaults() {
-    return { version: VERSION, numbers: {}, sentences: {}, sessionCount: 0 };
+    return {
+      version: VERSION, numbers: {}, sentences: {}, sessionCount: 0,
+      dictee: { boosts: {}, deletedIds: [] }
+    };
   }
 
   function loadLocal() {
@@ -126,6 +129,9 @@
     if (!state.numbers) state.numbers = {};
     if (!state.sentences) state.sentences = {};
     if (typeof state.sessionCount !== 'number') state.sessionCount = 0;
+    if (!state.dictee) state.dictee = { boosts: {}, deletedIds: [] };
+    if (!state.dictee.boosts) state.dictee.boosts = {};
+    if (!state.dictee.deletedIds) state.dictee.deletedIds = [];
   }
 
   function saveLocal() {
@@ -275,12 +281,14 @@
     save();
   }
 
-  function weightedShuffle(arr) {
+  // boostFn(id) → true when the item is ×6-boosted (defaults to sentence boost).
+  function weightedShuffle(arr, boostFn) {
+    if (!boostFn) boostFn = isBoosted;
     var pool = arr.slice(), out = [];
     while (pool.length > 0) {
       var total = 0, weights = [];
       for (var i = 0; i < pool.length; i++) {
-        var w = isBoosted(pool[i].id) ? 3.5 : 1;
+        var w = boostFn(pool[i].id) ? 3.5 : 1;
         weights.push(w); total += w;
       }
       var r = Math.random() * total, acc = 0, idx = pool.length - 1;
@@ -631,6 +639,242 @@
     });
   }
 
+  // ── Dictée mode (Option 4) — FR read → 5s think → EN ×N ────
+  // Self-contained engine (own state) so Mains Libres is untouched. Reuses the
+  // stateless primitives: playDing / speakEnglish / speakFrenchCb / initAudio /
+  // wake lock / weightedShuffle.
+
+  var DICTEE = buildDicteeItems();   // from numbers.js
+  var ecouteActive = false;
+  var ecoutePaused = false;
+  var ecouteItems = [];
+  var ecouteIndex = 0;
+  var ecouteHistory = [];
+  var ecouteReadTarget = 3;
+  var ecouteFinalPause = false;
+  var ecouteLastReadNum = 0;
+  var ecouteCurrentItem = null;
+  var ecouteReadsDoneCallback = null;
+  var ecouteCountdownId = null;
+  var ecouteCountdownRemaining = 0;
+  var ecouteCountdownLabel = '';
+  var ecouteCountdownDone = null;
+  var ecouteResumeMode = null;
+  var ecoutePrevPhase = '';
+
+  function activeDictee() {
+    var del = state.dictee.deletedIds || [];
+    if (!del.length) return DICTEE;
+    return DICTEE.filter(function (it) { return del.indexOf(it.id) === -1; });
+  }
+  function isDicteeBoosted(id) {
+    return !!(state.dictee.boosts && state.dictee.boosts[id]);
+  }
+  function toggleDicteeBoost(id) {
+    if (!state.dictee.boosts) state.dictee.boosts = {};
+    if (state.dictee.boosts[id]) delete state.dictee.boosts[id];
+    else state.dictee.boosts[id] = true;
+    save();
+    return isDicteeBoosted(id);
+  }
+  function deleteDictee(id) {
+    if (!state.dictee.deletedIds) state.dictee.deletedIds = [];
+    if (state.dictee.deletedIds.indexOf(id) === -1) state.dictee.deletedIds.push(id);
+    save();
+  }
+
+  function ecouteCancelStep() {
+    if ('speechSynthesis' in window) speechSynthesis.cancel();
+    if (ecouteCountdownId) { clearInterval(ecouteCountdownId); ecouteCountdownId = null; }
+    ecouteFinalPause = false;
+    ecouteLastReadNum = 0;
+    ecouteResumeMode = null;
+    ecouteCountdownDone = null;
+  }
+
+  function ecouteStartCountdown(seconds, label, onDone) {
+    if (!ecouteActive) return;
+    $('dictee-phase').textContent = label;
+    ecouteCountdownLabel = label;
+    ecouteCountdownDone = onDone;
+    ecouteCountdownRemaining = seconds;
+    $('dictee-countdown-num').textContent = seconds;
+    ecouteCountdownId = setInterval(function () {
+      if (!ecouteActive) { clearInterval(ecouteCountdownId); return; }
+      ecouteCountdownRemaining--;
+      $('dictee-countdown-num').textContent = ecouteCountdownRemaining;
+      if (ecouteCountdownRemaining <= 0) {
+        clearInterval(ecouteCountdownId);
+        ecouteCountdownId = null;
+        var done = ecouteCountdownDone;
+        ecouteCountdownDone = null;
+        done();
+      }
+    }, 1000);
+  }
+
+  function ecouteSpeaking(label) {
+    if (label) $('dictee-phase').textContent = label;
+    $('dictee-countdown-num').textContent = '♪';
+  }
+
+  function updateDicteeSix() {
+    var btn = $('btn-dictee-six');
+    if (!btn) return;
+    var it = ecouteItems[ecouteIndex];
+    var boosted = it ? isDicteeBoosted(it.id) : false;
+    btn.classList.toggle('activated', boosted);
+    btn.textContent = boosted ? '×6 ✓' : '×6';
+  }
+
+  // Recursive English readings — checks ecouteReadTarget live so ×6 works mid-item.
+  function doEnglishReads(item, readNum, onDone) {
+    if (!ecouteActive) return;
+    playDing('en', function () {
+      if (!ecouteActive) return;
+      ecouteSpeaking('En anglais…');
+      speakEnglish(item.en, function () {
+        if (!ecouteActive) return;
+        ecouteLastReadNum = readNum;
+        if (readNum >= ecouteReadTarget) {
+          onDone();
+        } else {
+          ecouteStartCountdown(5, 'Encore…', function () {
+            doEnglishReads(item, readNum + 1, onDone);
+          });
+        }
+      });
+    });
+  }
+
+  function ecouteStep() {
+    if (!ecouteActive) return;
+    if (ecouteIndex >= ecouteItems.length) {
+      ecouteActive = false;
+      releaseWakeLock();
+      showScreen('screen-acquis-done');
+      return;
+    }
+
+    ecouteHistory.push(ecouteIndex);
+    if (ecouteHistory.length > 30) ecouteHistory.shift();
+
+    var item = ecouteItems[ecouteIndex];
+    ecouteCurrentItem = item;
+    $('dictee-counter').textContent = (ecouteIndex + 1) + ' / ' + ecouteItems.length;
+
+    ecouteReadTarget = isDicteeBoosted(item.id) ? 6 : 3;
+    ecouteFinalPause = false;
+    ecouteLastReadNum = 0;
+    updateDicteeSix();
+
+    // Pre-fill but keep hidden until the English reading (true listening test).
+    $('dictee-display').textContent = item.display;
+    $('dictee-english').textContent = item.en;
+    hide($('dictee-number-area'));
+    hide($('dictee-english-area'));
+
+    var advanceFn = function () {
+      if (!ecouteActive) return;
+      ecouteFinalPause = true;
+      ecouteStartCountdown(5, 'Suivant…', function () {
+        ecouteFinalPause = false;
+        ecouteIndex++;
+        ecouteStep();
+      });
+    };
+    ecouteReadsDoneCallback = advanceFn;
+
+    var reveal = function () {
+      if (!ecouteActive) return;
+      show($('dictee-number-area'));
+      show($('dictee-english-area'));
+      doEnglishReads(item, 1, advanceFn);
+    };
+
+    // Phase 1: beep + speak French, then a 5s think countdown, then reveal+EN.
+    ecouteSpeaking('Écoutez en français…');
+    playDing('fr', function () {
+      if (!ecouteActive) return;
+      speakFrenchCb(item.answer, function () {
+        if (!ecouteActive) return;
+        ecouteStartCountdown(5, 'Traduisez…', reveal);
+      });
+    });
+  }
+
+  function startEcoute() {
+    ecouteItems = weightedShuffle(activeDictee(), isDicteeBoosted);
+    ecouteIndex = 0;
+    ecoutePaused = false;
+    ecouteHistory = [];
+    if (ecouteItems.length === 0) return;
+    initAudio();
+    ecouteActive = true;
+    $('btn-dictee-pause').textContent = '⏸ Pause';
+    requestWakeLock();
+    showScreen('screen-dictee');
+    ecouteStep();
+  }
+
+  function stopEcoute() {
+    ecouteActive = false;
+    ecoutePaused = false;
+    ecouteCancelStep();
+    releaseWakeLock();
+    showScreen('screen-home');
+  }
+
+  function pauseEcoute() {
+    ecoutePaused = true;
+    ecoutePrevPhase = $('dictee-phase').textContent;
+    if ('speechSynthesis' in window && (speechSynthesis.speaking || speechSynthesis.pending)) {
+      speechSynthesis.pause();
+      ecouteResumeMode = 'speech';
+    } else if (ecouteCountdownId) {
+      clearInterval(ecouteCountdownId);
+      ecouteCountdownId = null;
+      ecouteResumeMode = 'countdown';
+    } else {
+      ecouteResumeMode = 'step';
+    }
+    $('dictee-phase').textContent = 'En pause…';
+    $('btn-dictee-pause').textContent = '▶ Reprendre';
+  }
+
+  function resumeEcoute() {
+    ecoutePaused = false;
+    $('btn-dictee-pause').textContent = '⏸ Pause';
+    if (ecouteResumeMode === 'speech') {
+      if ('speechSynthesis' in window && (speechSynthesis.paused || speechSynthesis.speaking)) {
+        if (ecoutePrevPhase) $('dictee-phase').textContent = ecoutePrevPhase;
+        speechSynthesis.resume();
+      } else {
+        ecouteStep();
+      }
+    } else if (ecouteResumeMode === 'countdown' && ecouteCountdownDone) {
+      ecouteStartCountdown(ecouteCountdownRemaining, ecouteCountdownLabel, ecouteCountdownDone);
+    } else {
+      ecouteStep();
+    }
+    ecouteResumeMode = null;
+  }
+
+  function skipNextEcoute() {
+    if (!ecouteActive) return;
+    ecouteCancelStep();
+    ecouteIndex++;
+    ecouteStep();
+  }
+
+  function skipPrevEcoute() {
+    if (!ecouteActive) return;
+    ecouteCancelStep();
+    if (ecouteHistory.length > 0) ecouteHistory.pop();
+    if (ecouteHistory.length > 0) ecouteIndex = ecouteHistory.pop();
+    ecouteStep();
+  }
+
   // ── Progress overlay ────────────────────────────────────
 
   function renderProgress() {
@@ -720,6 +964,7 @@
     });
     $('btn-acquis').addEventListener('click', startAcquis);
     $('btn-handsfree').addEventListener('click', startHandsfree);
+    $('btn-dictee').addEventListener('click', startEcoute);
 
     // Number drill
     $('btn-number-home').addEventListener('click', function () {
@@ -816,6 +1061,42 @@
       updateSixButton();
     });
 
+    // Dictée
+    $('btn-dictee-home').addEventListener('click', stopEcoute);
+    $('btn-dictee-pause').addEventListener('click', function () {
+      if (ecoutePaused) resumeEcoute(); else pauseEcoute();
+    });
+    $('btn-dictee-prev').addEventListener('click', skipPrevEcoute);
+    $('btn-dictee-next').addEventListener('click', skipNextEcoute);
+    $('btn-dictee-six').addEventListener('click', function () {
+      var it = ecouteItems[ecouteIndex];
+      if (!it) return;
+      var nowBoosted = toggleDicteeBoost(it.id);
+      if (nowBoosted) {
+        ecouteReadTarget = Math.max(6, ecouteLastReadNum + 3);
+        // If pressed during the final pause, read more English now.
+        if (ecouteFinalPause && ecouteCurrentItem && ecouteReadsDoneCallback) {
+          ecouteFinalPause = false;
+          if (ecouteCountdownId) { clearInterval(ecouteCountdownId); ecouteCountdownId = null; }
+          doEnglishReads(ecouteCurrentItem, ecouteLastReadNum + 1, ecouteReadsDoneCallback);
+        }
+      } else {
+        ecouteReadTarget = ecouteLastReadNum < 3 ? 3 : ecouteLastReadNum + 1;
+      }
+      updateDicteeSix();
+    });
+    $('btn-dictee-delete').addEventListener('click', function () {
+      var it = ecouteItems[ecouteIndex];
+      if (!it) return;
+      if (!confirm('Supprimer définitivement :\n\n« ' + it.display + ' »  (' + it.answer + ')')) return;
+      deleteDictee(it.id);
+      ecouteItems.splice(ecouteIndex, 1);
+      if (ecouteItems.length === 0) { stopEcoute(); return; }
+      if (ecouteIndex >= ecouteItems.length) ecouteIndex = 0;
+      ecouteCancelStep();
+      ecouteStep();
+    });
+
     // Progress overlay
     $('btn-home-progress').addEventListener('click', function () {
       renderProgress();
@@ -838,7 +1119,8 @@
   }
 
   document.addEventListener('visibilitychange', function () {
-    if (document.visibilityState === 'visible' && handsfreeActive && !handsfreePaused) {
+    if (document.visibilityState !== 'visible') return;
+    if ((handsfreeActive && !handsfreePaused) || (ecouteActive && !ecoutePaused)) {
       requestWakeLock();
     }
   });

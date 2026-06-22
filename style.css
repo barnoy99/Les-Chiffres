@@ -174,13 +174,15 @@ button {
 
 .btn-home-icon { width: 26px; height: 26px; flex-shrink: 0; opacity: 0.65; }
 
-.btn-home--primary   { border-left-color: var(--color-blue); }
-.btn-home--secondary { border-left-color: var(--color-teal); }
-.btn-home--tertiary  { border-left-color: var(--color-gold); }
+.btn-home--primary    { border-left-color: var(--color-blue); }
+.btn-home--secondary  { border-left-color: var(--color-teal); }
+.btn-home--tertiary   { border-left-color: var(--color-gold); }
+.btn-home--quaternary { border-left-color: var(--color-amber); }
 
-.btn-home--primary   .btn-home-icon { color: var(--color-blue); }
-.btn-home--secondary .btn-home-icon { color: var(--color-teal); }
-.btn-home--tertiary  .btn-home-icon { color: var(--color-gold); }
+.btn-home--primary    .btn-home-icon { color: var(--color-blue); }
+.btn-home--secondary  .btn-home-icon { color: var(--color-teal); }
+.btn-home--tertiary   .btn-home-icon { color: var(--color-gold); }
+.btn-home--quaternary .btn-home-icon { color: var(--color-amber); }
 
 .btn-home:disabled { opacity: 0.4; cursor: not-allowed; }
 
@@ -654,6 +656,34 @@ button {
 .btn-autoread.activated svg { opacity: 1; }
 
 .btn-autoread:active { opacity: 0.85; }
+
+/* Round delete button (bottom-bar left). Subtle until pressed. */
+.btn-delete {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-secondary);
+  opacity: 0.45;
+  flex-shrink: 0;
+  transition: opacity 0.2s ease, background 0.2s ease, color 0.2s ease, transform 0.12s ease;
+}
+
+.btn-delete svg { width: 18px; height: 18px; }
+
+.btn-delete:active {
+  opacity: 1;
+  color: var(--color-accent);
+  background: var(--color-accent-light);
+  transform: scale(0.92);
+}
+
+@media (hover: hover) {
+  .btn-delete:hover { opacity: 1; color: var(--color-accent); }
+}
 
 /* ============================================================
    PROGRESS OVERLAY

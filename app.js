@@ -28,6 +28,7 @@
   var handsfreePaused = false;
   var handsfreePhrases = [];
   var handsfreeIndex = 0;
+  var handsfreeItemStart = 0;        // ms timestamp of current item start (back-to-restart)
   var handsfreeHistory = [];
   var handsfreeReadTarget = 3;
   var handsfreeFinalPause = false;
@@ -505,13 +506,13 @@
     handsfreeStep();
   }
 
+  // Apple-Music-style back: restart the current item; only jump to the previous
+  // one if pressed again within 2s (i.e. near the start of the item).
   function skipPrevHandsfree() {
     if (!handsfreeActive) return;
     cancelCurrentStep();
-    if (handsfreeHistory.length > 0) handsfreeHistory.pop();
-    if (handsfreeHistory.length > 0) {
-      var prev = handsfreeHistory.pop();
-      handsfreeIndex = prev.index;
+    if (Date.now() - handsfreeItemStart <= 2000 && handsfreeIndex > 0) {
+      handsfreeIndex--;
     }
     handsfreeStep();
   }
@@ -596,6 +597,7 @@
 
     handsfreeHistory.push({ index: handsfreeIndex });
     if (handsfreeHistory.length > 30) handsfreeHistory.shift();
+    handsfreeItemStart = Date.now();
 
     var p = handsfreePhrases[handsfreeIndex];
     var r = resolveSentence(p, handsfreeRendered);
@@ -649,6 +651,7 @@
   var ecoutePaused = false;
   var ecouteItems = [];
   var ecouteIndex = 0;
+  var ecouteItemStart = 0;           // ms timestamp of current item start (back-to-restart)
   var ecouteHistory = [];
   var ecouteReadTarget = 3;
   var ecouteFinalPause = false;
@@ -788,6 +791,7 @@
     ecouteHistory.push(ecouteIndex);
     if (ecouteHistory.length > 30) ecouteHistory.shift();
 
+    ecouteItemStart = Date.now();
     var item = ecouteItems[ecouteIndex];
     ecouteCurrentItem = item;
     $('dictee-counter').textContent = (ecouteIndex + 1) + ' / ' + ecouteItems.length;
@@ -879,11 +883,14 @@
     ecouteStep();
   }
 
+  // Apple-Music-style back: restart the current number; only go to the previous
+  // one if pressed again within 2s (near the start).
   function skipPrevEcoute() {
     if (!ecouteActive) return;
     ecouteCancelStep();
-    if (ecouteHistory.length > 0) ecouteHistory.pop();
-    if (ecouteHistory.length > 0) ecouteIndex = ecouteHistory.pop();
+    if (Date.now() - ecouteItemStart <= 2000 && ecouteIndex > 0) {
+      ecouteIndex--;
+    }
     ecouteStep();
   }
 
